@@ -31,13 +31,13 @@
 ### 🐧 Linux / 🍎 macOS
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/yourusername/jmoona-cli/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/riter675/jmoona-cli/main/install.sh)
 ```
 
 ### 🪟 Windows (PowerShell en administrateur)
 
 ```powershell
-irm https://raw.githubusercontent.com/yourusername/jmoona-cli/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/riter675/jmoona-cli/main/install.ps1 | iex
 ```
 
 ### 🐳 Docker (n'importe quel OS)
@@ -55,7 +55,7 @@ docker run -it --rm \
 ### Installation manuelle (pip)
 
 ```bash
-git clone https://github.com/yourusername/jmoona-cli.git
+git clone https://github.com/riter675/jmoona-cli.git
 cd jmoona-cli
 pip install -e .
 jmoona

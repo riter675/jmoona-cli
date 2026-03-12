@@ -76,7 +76,7 @@ if (Test-Path $installDir) {
     info "Mise à jour..."
     git -C $installDir pull --ff-only
 } else {
-    git clone --depth=1 https://github.com/yourusername/jmoona-cli.git $installDir
+    git clone --depth=1 https://github.com/riter675/jmoona-cli.git $installDir
 }
 
 pip install -e $installDir --quiet

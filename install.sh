@@ -107,7 +107,7 @@ if [ -d "$HOME/.local/share/jmoona-cli" ]; then
     info "Mise à jour de jmoona-cli..."
     git -C "$HOME/.local/share/jmoona-cli" pull --ff-only
 else
-    git clone --depth=1 https://github.com/yourusername/jmoona-cli.git "$HOME/.local/share/jmoona-cli"
+    git clone --depth=1 https://github.com/riter675/jmoona-cli.git "$HOME/.local/share/jmoona-cli"
 fi
 
 # Installer le package Python
