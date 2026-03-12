@@ -26,25 +26,41 @@ try {
 $hasWinget = Get-Command winget -ErrorAction SilentlyContinue
 
 # ── 3. mpv ────────────────────────────────────────────────────────────────────
-try {
-    mpv --version | Out-Null
-    info "mpv : OK"
-} catch {
-    warn "mpv non trouvé — installation via winget..."
+$mpvOk = $false
+try { mpv --version | Out-Null; $mpvOk = $true; info "mpv : OK" } catch {}
+if (-not $mpvOk) {
+    warn "mpv non trouvé — installation via winget (shinchiro build)..."
     if ($hasWinget) {
-        winget install -e --id mpv.mpv --silent
+        winget install -e --id shinchiro.mpv --silent 2>$null
+        # Refresh PATH so mpv.exe is found immediately in this session
+        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" +
+                    [System.Environment]::GetEnvironmentVariable("PATH","User")
+        # mpv installs to "MPV Player" — add it if not already on PATH
+        $mpvDir = "C:\Program Files\MPV Player"
+        if ((Test-Path $mpvDir) -and ($env:PATH -notlike "*MPV Player*")) {
+            [System.Environment]::SetEnvironmentVariable("PATH", $env:PATH + ";$mpvDir", "User")
+            $env:PATH += ";$mpvDir"
+            info "mpv ajouté au PATH : $mpvDir"
+        }
+        try { mpv --version | Out-Null; info "mpv : OK" } catch { warn "mpv installé mais redémarrez le terminal pour l'utiliser." }
     } else {
         warn "winget non disponible. Installez mpv manuellement : https://mpv.io/installation/"
     }
 }
 
 # ── 4. yt-dlp ─────────────────────────────────────────────────────────────────
-try {
-    yt-dlp --version | Out-Null
-    info "yt-dlp : OK"
-} catch {
+$ytdlpOk = $false
+try { yt-dlp --version | Out-Null; $ytdlpOk = $true; info "yt-dlp : OK" } catch {}
+if (-not $ytdlpOk) {
+    try { python -m yt_dlp --version | Out-Null; $ytdlpOk = $true; info "yt-dlp : OK (python -m)" } catch {}
+}
+if (-not $ytdlpOk) {
     warn "yt-dlp non trouvé — installation..."
-    pip install yt-dlp
+    python -m pip install yt-dlp
+    # Refresh PATH
+    $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" +
+                [System.Environment]::GetEnvironmentVariable("PATH","User")
+    info "yt-dlp installé."
 }
 
 # ── 5. Git ────────────────────────────────────────────────────────────────────

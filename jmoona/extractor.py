@@ -22,7 +22,18 @@ def chromedriver_path():
     return None
 
 def ytdlp_ok():
-    return shutil.which("yt-dlp") is not None
+    """Returns True if yt-dlp is usable (either as a CLI binary or via python -m yt_dlp)."""
+    if shutil.which("yt-dlp") is not None:
+        return True
+    # Fallback: yt-dlp installed via pip but not in PATH (common on Windows)
+    try:
+        res = subprocess.run(
+            ["python", "-m", "yt_dlp", "--version"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5
+        )
+        return res.returncode == 0
+    except Exception:
+        return False
 
 def _get(url, referer=None):
     try:
@@ -278,12 +289,18 @@ def extract(tmdb_id, media_type, season=1, episode=1,
             return None, None
 
     def _ytdlp(embed_url, quality="best", lang="fr", proxy=None):
-        cmd = ["yt-dlp", "-g", "--no-warnings", embed_url]
-        try:
-            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15)
-            if res.returncode == 0 and res.stdout.strip():
-                return res.stdout.strip().split('\n')[0], None
-        except: pass
+        # Try yt-dlp binary first, then fall back to python -m yt_dlp (Windows pip install)
+        cmds = []
+        if shutil.which("yt-dlp"):
+            cmds.append(["yt-dlp", "-g", "--no-warnings", embed_url])
+        cmds.append(["python", "-m", "yt_dlp", "-g", "--no-warnings", embed_url])
+        for cmd in cmds:
+            try:
+                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+                if res.returncode == 0 and res.stdout.strip():
+                    return res.stdout.strip().split('\n')[0], None
+            except Exception:
+                continue
         return None, None
 
     # Phase 0: Cloudnestra HTTP
@@ -329,8 +346,17 @@ def extract(tmdb_id, media_type, season=1, episode=1,
                 return url, vtt
         clear_line()
 
-    # Phase 4: direct embed
+    # Phase 4: yt-dlp on all providers (last resort, slower)
     warn("Passage en mode mpv direct ...")
-    name, movie_t, tv_t = providers[0]
-    tpl = movie_t if media_type == "movie" else tv_t
-    return tpl.format(id=tmdb_id, s=season, e=episode), None
+    for name, movie_t, tv_t in providers:
+        tpl = movie_t if media_type == "movie" else tv_t
+        embed_url = tpl.format(id=tmdb_id, s=season, e=episode)
+        url, vtt = _ytdlp(embed_url, quality=quality, lang=lang, proxy=proxy)
+        if url:
+            clear_line()
+            success(f"Stream via yt-dlp ({name})")
+            return url, vtt
+    clear_line()
+
+    warn("Aucun flux trouvé sur toutes les sources. Vérifie ta connexion ou essaie un autre titre.")
+    return None, None

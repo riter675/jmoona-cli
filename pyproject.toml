@@ -13,6 +13,8 @@ keywords = ["streaming", "films", "séries", "mpv", "cli", "terminal"]
 dependencies = [
     # Core HTTP / parsing
     "requests>=2.28.0",
+    # Stream extraction (required for Phase 3/4 fallback)
+    "yt-dlp>=2024.1.0",
     # Browser automation (Selenium + undetected-chromedriver for CF bypass)
     "selenium>=4.9.0",
     "undetected-chromedriver>=3.5.0",
