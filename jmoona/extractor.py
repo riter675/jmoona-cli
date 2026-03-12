@@ -245,8 +245,17 @@ def extract(tmdb_id, media_type, season=1, episode=1,
         iframe = re.search(r'<iframe[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE)
         if iframe:
             iframe_url = iframe.group(1)
-            if not iframe_url.startswith("http"):
+            if not iframe_url.startswith("http") and not iframe_url.startswith("//"):
                 iframe_url = urllib.parse.urljoin(embed_url, iframe_url)
+            elif iframe_url.startswith("//"):
+                iframe_url = "https:" + iframe_url
+
+            # Fast track famous hosts to yt-dlp directly instead of naive regex
+            known_hosts = ["dood", "streamtape", "voe", "upstream", "mixdrop", "filemoon", "vudeo", "vidhide", "uqload"]
+            if any(h in iframe_url for h in known_hosts):
+                url, vtt = _ytdlp(iframe_url, quality=quality, referer=embed_url)
+                if url: return url, vtt
+
             html2 = _cffi_get(iframe_url, referer=embed_url)
             if html2:
                 for pattern in (_STREAM_RE, _HLS_RE, _MP4_RE):
@@ -476,7 +485,7 @@ def extract(tmdb_id, media_type, season=1, episode=1,
 
     # ── Concurrent helper for phase 1 ─────────────────────────────────────────
 
-    def _scrape_concurrent(provider_list, max_workers=3):
+    def _scrape_concurrent(provider_list, max_workers=10):
         """Try multiple providers concurrently, return first success."""
         result = [None, None]
         stop = threading.Event()
@@ -535,9 +544,9 @@ def extract(tmdb_id, media_type, season=1, episode=1,
         clear_line(); success("Stream trouvé via Cloudnestra"); return url, vtt
     clear_line()
 
-    # Phase 1 (concurrent, max 3 at a time)
+    # Phase 1 (concurrent, max 10 at a time)
     spinner(f"🔍 Scrapers HTTP ({len(providers)} providers) ...", art=get_random_art())
-    url, vtt = _scrape_concurrent(providers, max_workers=3)
+    url, vtt = _scrape_concurrent(providers, max_workers=10)
     if url:
         clear_line(); success("Stream trouvé via scraper HTTP"); return url, vtt
     clear_line()

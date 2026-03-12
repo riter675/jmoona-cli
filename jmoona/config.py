@@ -1,7 +1,7 @@
 import os
 import sys
 
-__version__ = "1.0.4"
+__version__ = "1.0.5"
 
 # --- Cross-platform config directory ---
 def _default_config_dir() -> str:

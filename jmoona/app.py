@@ -66,14 +66,28 @@ def print_details(item):
     else:
         country_str = ""
 
+    # Credits
+    crew_str = ""
+    cast_str = ""
+    if "credits" in item:
+        director = [c["name"] for c in item["credits"].get("crew", []) if c.get("job") == "Director"]
+        if director:
+            crew_str = f"🎥 De {', '.join(director[:2])}"
+        cast = [c["name"] for c in item["credits"].get("cast", [])]
+        if cast:
+            cast_str = f"🎭 {', '.join(cast[:3])}"
+
     print(f"\n{C.CYAN}════════════════════════════════════════════════════════════{C.RESET}")
     print(f"  {C.BOLD}{title}{C.RESET}  ({date})  {mtype}{runtime_str}{country_str}")
     print(f"  {C.YELLOW}★{item.get('vote_average', 0):.1f}/10{C.RESET}  |  {item.get('vote_count', 0)} votes", end="")
     if "original_language" in item:
-        print(f"  |  Langue originale: {get_lang_label(item['original_language'])}", end="")
+        print(f"  |  VO: {get_lang_label(item['original_language'])}", end="")
     print()
     if genre_str:
         print(f"  {C.DIM}{genre_str}{C.RESET}")
+    if crew_str or cast_str:
+        sep = "  |  " if crew_str and cast_str else ""
+        print(f"  {C.GREEN}{crew_str}{sep}{cast_str}{C.RESET}")
     print(f"\n  {C.DIM}{overview}{C.RESET}")
     print(f"{C.CYAN}════════════════════════════════════════════════════════════{C.RESET}")
 
@@ -108,6 +122,8 @@ def main_flow(query=None, args=None):
         ("🏆  Mieux notés",         lambda: handle_list(tmdb_client.top_rated("movie"), "Mieux Notés", args, config)),
         ("🎭  Par genre",           lambda: handle_by_genre(args, config)),
         ("🌐  Par langue originale",lambda: handle_by_language(args, config)),
+        ("👤  Par acteur/réalisateur", lambda: handle_by_person(args, config)),
+        ("🎲  Surprenez-moi !",     lambda: handle_random(args, config)),
         ("🕒  Historique",          lambda: handle_history(args, config)),
         ("🔖  Favoris",             lambda: handle_bookmarks(args, config)),
         ("👋  Quitter",             lambda: sys.exit(0)),
@@ -151,6 +167,65 @@ def handle_search(mtype, args, config):
         if item:
             item["media_type"] = mtype
             handle_item(item, args, config)
+
+
+def handle_by_person(args, config):
+    q = input(f"\nRecherche d'une personne (Acteur/Réalisateur) : ").strip()
+    if not q:
+        return
+    spinner("Recherche...", art=get_random_art())
+    persons = tmdb_client.search_person(q)
+    clear_line()
+    if not persons:
+        warn("Aucune personne trouvée.")
+        return
+        
+    def fmt_person(p):
+        dep = p.get("known_for_department", "Inconnu")
+        return f"👤 {C.BOLD}{p['name']}{C.RESET}  {C.DIM}({dep}){C.RESET}"
+        
+    person = fzf_or_numbered(persons, "Choisir une personne", fmt_person, use_fzf=config.get("use_fzf", True))
+    if not person:
+        return
+        
+    spinner(f"Chargement de la filmographie de {person['name']}...", art=get_random_art())
+    credits = tmdb_client.person_credits(person["id"])
+    clear_line()
+    
+    # Merge cast and crew, sort by popularity
+    works = credits.get("cast", []) + [w for w in credits.get("crew", []) if w.get("job") == "Director"]
+    # deduplicate by id
+    seen = set()
+    unique_works = []
+    for w in works:
+        if w["id"] not in seen and w.get("media_type") in ("movie", "tv"):
+            seen.add(w["id"])
+            unique_works.append(w)
+            
+    unique_works.sort(key=lambda x: x.get("popularity", 0), reverse=True)
+    if not unique_works:
+        warn("Aucune oeuvre trouvée pour cette personne.")
+        return
+    
+    handle_list(unique_works, f"Filmographie — {person['name']}", args, config)
+
+
+def handle_random(args, config):
+    mtype_choices = [("🎬 Film aléatoire", "movie"), ("📺 Série aléatoire", "tv")]
+    mtype_choice  = fzf_or_numbered(mtype_choices, "Type", lambda x: x[0],
+                                    use_fzf=config.get("use_fzf", True))
+    if not mtype_choice:
+        return
+    mtype = mtype_choice[1]
+    
+    spinner("Génération magique d'un titre...", art=get_random_art())
+    item = tmdb_client.random_title(media_type=mtype)
+    clear_line()
+    if item:
+        item["media_type"] = mtype
+        handle_item(item, args, config)
+    else:
+        warn("Erreur lors de la génération aléatoire.")
 
 
 def handle_list(items, title, args, config):

@@ -202,8 +202,8 @@ class TMDB:
     def trending(self, media_type="all", window="week"):
         return self._get(f"/trending/{media_type}/{window}").get("results", [])
 
-    def popular(self, media_type="movie"):
-        return self._get(f"/{media_type}/popular").get("results", [])
+    def popular(self, media_type="movie", page=1):
+        return self._get(f"/{media_type}/popular", {"page": page}).get("results", [])
 
     def top_rated(self, media_type="movie"):
         return self._get(f"/{media_type}/top_rated").get("results", [])
@@ -225,5 +225,21 @@ class TMDB:
         data = self._get(f"/{media_type}/{tmdb_id}/translations")
         return [t["iso_639_1"] for t in data.get("translations", [])]
 
+    # ── Persons & Random ──────────────────────────────────────────────────────
+
+    def search_person(self, query, page=1):
+        return self._get("/search/person", {"query": query, "page": page}).get("results", [])
+
+    def person_credits(self, person_id):
+        return self._get(f"/person/{person_id}/combined_credits")
+
+    def random_title(self, media_type="movie"):
+        import random
+        # Pick from top 10 popular pages
+        page = random.randint(1, 10)
+        results = self.popular(media_type=media_type, page=page)
+        if results:
+            return random.choice(results)
+        return None
 
 tmdb_client = TMDB()
