@@ -1,0 +1,27 @@
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Package build artifacts
+*.egg-info/
+dist/
+build/
+
+# Test / debug files
+test_*.py
+page*.html
+screenshot*.png
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config & secrets (user keeps their own)
+# jmoona/ dir at root level is a build artifact — real source is jmoona/
