@@ -19,6 +19,7 @@ screenshot*.png
 .vscode/
 .idea/
 *.swp
+.publish-venv/
 
 # OS
 .DS_Store
