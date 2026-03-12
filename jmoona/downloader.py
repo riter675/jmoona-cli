@@ -58,7 +58,7 @@ def download_season(tmdb_id, season_num, out_dir, quality="best", lang="fr"):
     for ep in season_data.get("episodes", []):
         ep_num = ep["episode_number"]
         print(f"\nExtraction S{season_num:02d}E{ep_num:02d}...")
-        stream_url = extract(tmdb_id, "tv", season_num, ep_num, quality=quality, lang=lang)
+        stream_url, _ = extract(tmdb_id, "tv", season_num, ep_num, quality=quality, lang=lang)
         if stream_url:
             title = f"S{season_num:02d}E{ep_num:02d} - {ep.get('name', '')}"
             download(stream_url, title, out_dir, quality=quality, audio_lang=lang)

@@ -15,7 +15,7 @@ from .tmdb import tmdb_client
 from .storage import load_config, add_history, get_history, get_bookmarks, add_bookmark, get_resume
 from .extractor import extract
 from .player import play
-from .language import detect_tracks, get_lang_label
+from .language import detect_tracks, get_lang_label, normalize_lang
 from .downloader import download
 from .art import get_random_art
 from .subtitles import fetch_subtitle
@@ -97,6 +97,162 @@ def select_media(results, config, prompt="Résultats"):
         warn("Aucun résultat.")
         return None
     return fzf_or_numbered(results, prompt, format_item, use_fzf=config.get("use_fzf", True))
+
+
+def _unique_langs(values):
+    seen = set()
+    ordered = []
+    for value in values:
+        if not value:
+            continue
+        if value not in seen:
+            seen.add(value)
+            ordered.append(value)
+    return ordered
+
+
+def _configured_audio_langs(config):
+    raw = config.get("lang", ["fr", "en"])
+    if isinstance(raw, str):
+        raw = [part.strip() for part in raw.split(",")]
+    return _unique_langs(normalize_lang(lang) for lang in raw if lang)
+
+
+def _resolve_playback_preferences(item, args, config):
+    original_lang = normalize_lang(item.get("original_language") or "en")
+    default_sub = normalize_lang(config.get("sub_lang", "fr"))
+    requested_audio = (getattr(args, "lang", None) or "").strip().lower() if args else ""
+    requested_sub = (getattr(args, "sub", None) or "").strip().lower() if args else ""
+    configured_audio = _configured_audio_langs(config) or ["fr", "en"]
+    subtitles_disabled = requested_sub == "off"
+
+    if subtitles_disabled:
+        requested_sub = ""
+    subtitle_language = None if subtitles_disabled else (
+        normalize_lang(requested_sub) if requested_sub else default_sub
+    )
+
+    if requested_audio:
+        if requested_audio in ("vostfr", "vosfr"):
+            return {
+                "lang_mode": "vostfr",
+                "audio_preferences": _unique_langs([original_lang, "en"]),
+                "subtitle_language": subtitle_language,
+                "subtitle_behavior": "always",
+            }
+        if requested_audio in ("va", "vo", "original", "orig"):
+            return {
+                "lang_mode": "va",
+                "audio_preferences": _unique_langs([original_lang, "en"]),
+                "subtitle_language": normalize_lang(requested_sub) if requested_sub else None,
+                "subtitle_behavior": "always" if requested_sub else "never",
+            }
+
+        requested = normalize_lang(requested_audio)
+        subtitle_lang = normalize_lang(requested_sub) if requested_sub else None
+        return {
+            "lang_mode": "custom",
+            "audio_preferences": _unique_langs([requested, original_lang, "en", "fr"]),
+            "subtitle_language": subtitle_lang,
+            "subtitle_behavior": "always" if subtitle_lang else "never",
+        }
+
+    is_anime = item.get("original_language") in ("ja", "ko", "zh")
+    lang_menu = [
+        ("🎵  Auto  — VF si disponible, sinon VOSTFR", "auto"),
+        ("🔤  VOSTFR  — VO + sous-titres français", "vostfr"),
+        ("🇬🇧  VA  — Version originale uniquement", "va"),
+    ]
+    lang_choice = fzf_or_numbered(
+        lang_menu,
+        "Mode de lecture",
+        lambda x: x[0],
+        use_fzf=config.get("use_fzf", True),
+    )
+    lang_mode = lang_choice[1] if lang_choice else ("vostfr" if is_anime else "auto")
+
+    if lang_mode == "vostfr":
+        return {
+            "lang_mode": lang_mode,
+            "audio_preferences": _unique_langs([original_lang, "en"]),
+            "subtitle_language": default_sub,
+            "subtitle_behavior": "always",
+        }
+    if lang_mode == "va":
+        return {
+            "lang_mode": lang_mode,
+            "audio_preferences": _unique_langs([original_lang, "en"]),
+            "subtitle_language": None,
+            "subtitle_behavior": "never",
+        }
+    return {
+        "lang_mode": "auto",
+        "audio_preferences": _unique_langs(configured_audio + [original_lang, "en"]),
+        "subtitle_language": default_sub,
+        "subtitle_behavior": "when_needed",
+    }
+
+
+def _pick_track_by_language(tracks, preferred_languages):
+    for preferred in preferred_languages:
+        for track in tracks:
+            if normalize_lang(track.get("lang", "")) == preferred:
+                return track
+    return tracks[0] if tracks else None
+
+
+def _prepare_playback(item, stream_url, season, episode, prefs):
+    audio_preferences = prefs["audio_preferences"]
+    subtitle_language = prefs["subtitle_language"]
+    subtitle_behavior = prefs["subtitle_behavior"]
+    audio_lang_mpv = ",".join(audio_preferences) if audio_preferences else "en"
+    audio_track = None
+    sub_track = None
+    sub_file = None
+    selected_audio_lang = None
+
+    track_info = detect_tracks(stream_url)
+    if track_info.get("audio"):
+        audio_track = _pick_track_by_language(track_info["audio"], audio_preferences)
+        selected_audio_lang = normalize_lang(audio_track.get("lang", "")) if audio_track else None
+
+    wants_subtitles = bool(subtitle_language) and subtitle_behavior == "always"
+    if (
+        subtitle_behavior == "when_needed"
+        and subtitle_language
+        and selected_audio_lang
+        and selected_audio_lang != "fr"
+    ):
+        wants_subtitles = True
+
+    if wants_subtitles and track_info.get("subs"):
+        preferred_sub = _pick_track_by_language(track_info["subs"], [subtitle_language])
+        if preferred_sub:
+            sub_track = preferred_sub.get("mpv_id")
+            success(f"Sous-titres intégrés: {get_lang_label(preferred_sub['lang'])}")
+
+    if wants_subtitles and sub_track is None:
+        spinner("Recherche de sous-titres ...", art=get_random_art())
+        sub_file = fetch_subtitle(
+            item["id"],
+            item["media_type"],
+            lang=subtitle_language,
+            season=season,
+            episode=episode,
+        )
+        clear_line()
+        if sub_file:
+            success(f"Sous-titres chargés: {os.path.basename(sub_file)}")
+        else:
+            warn("Aucun sous-titre correspondant trouvé.")
+
+    return {
+        "audio_lang_mpv": audio_lang_mpv,
+        "audio_track": audio_track.get("mpv_id") if audio_track else None,
+        "sub_track": sub_track,
+        "sub_file": sub_file,
+        "selected_audio_lang": selected_audio_lang,
+    }
 
 
 def main_flow(query=None, args=None):
@@ -374,9 +530,16 @@ def handle_item(item, args, config):
 
     print_details(item)
 
-    opts = ["▶ Regarder", "⬇ Télécharger", "🔖 Ajouter aux favoris", "🔙 Retour"]
-    choice = fzf_or_numbered(opts, "Action", lambda x: x,
-                             use_fzf=config.get("use_fzf", True))
+    if args and getattr(args, "download", False):
+        choice = "⬇ Télécharger"
+    else:
+        opts = ["▶ Regarder", "⬇ Télécharger", "🔖 Ajouter aux favoris", "🔙 Retour"]
+        choice = fzf_or_numbered(
+            opts,
+            "Action",
+            lambda x: x,
+            use_fzf=config.get("use_fzf", True),
+        )
 
     if not choice or "Retour" in choice:
         return
@@ -401,17 +564,9 @@ def handle_item(item, args, config):
                 else config.get("provider", "auto"))
     quality  = (args.quality if args and getattr(args, 'quality', None)
                 else config.get("quality", "best"))
-
-    # Language mode
-    is_anime = item.get("original_language") in ("ja", "ko", "zh")
-    lang_menu = [
-        ("🎵  Auto  — FR si disponible, sinon VO (recommandé)", "auto"),
-        ("🔤  VOSTFR  — VO + sous-titres français",             "vostfr"),
-        ("🇬🇧  VA  — Version originale uniquement",              "va"),
-    ]
-    lang_choice = fzf_or_numbered(lang_menu, "Mode de lecture", lambda x: x[0],
-                                  use_fzf=config.get("use_fzf", True))
-    lang_mode = lang_choice[1] if lang_choice else ("vostfr" if is_anime else "auto")
+    proxy = (args.proxy if args and getattr(args, "proxy", None)
+             else config.get("proxy"))
+    prefs = _resolve_playback_preferences(item, args, config)
 
     # --- Extraction loop with retry ---
     stream_url = None
@@ -419,7 +574,10 @@ def handle_item(item, args, config):
     while stream_url is None:
         stream_url, vtt_url = extract(
             item["id"], item["media_type"], season, episode,
-            quality=quality, lang="en", provider=provider
+            quality=quality,
+            lang=prefs["audio_preferences"][0],
+            proxy=proxy,
+            provider=provider,
         )
 
         if not stream_url:
@@ -443,36 +601,31 @@ def handle_item(item, args, config):
                     provider = prov_choice
             # else retry_all: just loop again
 
-    # Audio language preference for mpv
-    audio_lang_mpv = {
-        "auto":   "fr,en",
-        "va":     "en",
-        "vostfr": "en",
-    }.get(lang_mode, "en")
+    playback = _prepare_playback(item, stream_url, season, episode, prefs)
 
-    # Subtitles (VOSTFR only)
-    sub_file = None
-    if lang_mode == "vostfr":
-        spinner("Recherche de sous-titres français ...", art=get_random_art())
-        sub_file = fetch_subtitle(item["id"], item["media_type"],
-                                  lang="fr", season=season, episode=episode)
-        clear_line()
-        if sub_file:
-            success(f"✓ VOSTFR — {os.path.basename(sub_file)}")
-        else:
-            warn("Aucun sous-titre FR trouvé — lecture en VO.")
-
-    item["episode"] = episode
-    add_history(item)
+    history_entry = dict(item)
+    if item["media_type"] == "tv":
+        history_entry["season"] = season
+        history_entry["episode"] = episode
+    add_history(history_entry)
 
     if "Télécharger" in choice:
-        out_dir = os.path.expanduser(config.get("download_dir", "~/Downloads/jmoona"))
+        out_dir = os.path.expanduser(
+            args.download_dir if args and getattr(args, "download_dir", None)
+            else config.get("download_dir", "~/Downloads/jmoona")
+        )
         title_str = item.get("title") or item.get("name")
         if item["media_type"] == "tv":
             title_str += f" S{season:02d}E{episode:02d}"
-        download(stream_url, title_str, out_dir, quality=quality,
-                 audio_lang=audio_lang_mpv or "en",
-                 sub_path=sub_file)
+        download(
+            stream_url,
+            title_str,
+            out_dir,
+            quality=quality,
+            audio_lang=playback["audio_lang_mpv"] or "en",
+            sub_path=playback["sub_file"],
+            proxy=proxy,
+        )
         return
 
     # Play
@@ -480,25 +633,29 @@ def handle_item(item, args, config):
     if item["media_type"] == "tv":
         rkey += f"_s{season}e{episode}"
     resume_pos = get_resume(rkey)
+    player_name = (args.player if args and getattr(args, "player", None)
+                   else config.get("player", "mpv"))
 
     play(
         stream_url,
         title=(item.get("title") or item.get("name")),
-        player=config.get("player", "mpv"),
+        player=player_name,
         player_args=config.get("player_args", "--fs"),
-        audio_lang=audio_lang_mpv,
-        sub_path=sub_file,
+        audio_lang=playback["audio_lang_mpv"],
+        sub_path=playback["sub_file"],
+        audio_track=playback["audio_track"],
+        sub_track=playback["sub_track"],
         resume_pos=resume_pos,
     )
 
     # Auto-next episode
     if (config.get("auto_next", False) and item["media_type"] == "tv"):
         _attempt_next_episode(item, season, episode, args, config,
-                              lang_mode, provider, quality)
+                              prefs, provider, quality, proxy)
 
 
 def _attempt_next_episode(item, season, episode, args, config,
-                           lang_mode, provider, quality):
+                           prefs, provider, quality, proxy):
     """Auto-play the next episode if available."""
     try:
         season_info = tmdb_client.season(item["id"], season)
@@ -521,42 +678,45 @@ def _attempt_next_episode(item, season, episode, args, config,
     if ans in ("", "o", "y", "oui", "yes"):
         item_next = dict(item)
         handle_item_direct(item_next, next_s, next_ep, args, config,
-                           lang_mode, provider, quality)
+                           prefs, provider, quality, proxy)
 
 
 def handle_item_direct(item, season, episode, args, config,
-                        lang_mode, provider, quality):
+                        prefs, provider, quality, proxy):
     """Play a specific season/episode directly (used by auto-next)."""
     stream_url, _ = extract(
         item["id"], item["media_type"], season, episode,
-        quality=quality, lang="en", provider=provider
+        quality=quality,
+        lang=prefs["audio_preferences"][0],
+        proxy=proxy,
+        provider=provider,
     )
     if not stream_url:
         error(f"Flux introuvable pour S{season:02d}E{episode:02d}.")
         return
 
-    audio_lang_mpv = {"auto": "fr,en", "va": "en", "vostfr": "en"}.get(lang_mode, "en")
+    playback = _prepare_playback(item, stream_url, season, episode, prefs)
 
-    sub_file = None
-    if lang_mode == "vostfr":
-        spinner("Sous-titres...", art=get_random_art())
-        sub_file = fetch_subtitle(item["id"], item["media_type"],
-                                  lang="fr", season=season, episode=episode)
-        clear_line()
+    history_entry = dict(item, season=season, episode=episode)
+    add_history(history_entry)
 
     rkey = f"{item['media_type']}_{item['id']}_s{season}e{episode}"
     resume_pos = get_resume(rkey)
+    player_name = (args.player if args and getattr(args, "player", None)
+                   else config.get("player", "mpv"))
 
     play(
         stream_url,
         title=f"{item.get('title') or item.get('name')} S{season:02d}E{episode:02d}",
-        player=config.get("player", "mpv"),
+        player=player_name,
         player_args=config.get("player_args", "--fs"),
-        audio_lang=audio_lang_mpv,
-        sub_path=sub_file,
+        audio_lang=playback["audio_lang_mpv"],
+        sub_path=playback["sub_file"],
+        audio_track=playback["audio_track"],
+        sub_track=playback["sub_track"],
         resume_pos=resume_pos,
     )
 
     if config.get("auto_next", False):
         _attempt_next_episode(item, season, episode, args, config,
-                              lang_mode, provider, quality)
+                              prefs, provider, quality, proxy)

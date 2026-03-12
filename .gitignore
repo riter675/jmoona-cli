@@ -11,6 +11,7 @@ build/
 
 # Test / debug files
 test_*.py
+!tests/test_*.py
 page*.html
 screenshot*.png
 
