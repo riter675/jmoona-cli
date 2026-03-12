@@ -1,7 +1,7 @@
 import os
 import sys
 
-__version__ = "1.0.2"
+__version__ = "1.0.4"
 
 # --- Cross-platform config directory ---
 def _default_config_dir() -> str:
@@ -42,14 +42,15 @@ DEFAULT_CONFIG = {
   "quality": "best",
   "provider": "auto",
   "lang": ["fr", "en"],
-  "sub_lang": "auto",
+  "sub_lang": "fr",
   "sub_auto": True,
   "history_limit": 1000,
-  "results_limit": 20,
+  "results_limit": 60,
   "use_fzf": True,
   "auto_next": False,
   "resume": True,
   "proxy": None,
+  "concurrent_search": True,
   "tmdb_key": TMDB_KEY,
   "opensubtitles_key": ""
 }

@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jmoona-cli"
-version = "1.0.3"
+version = "1.0.4"
 description = "Films & séries du monde en streaming depuis le terminal"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
-keywords = ["streaming", "films", "séries", "mpv", "cli", "terminal"]
+keywords = ["streaming", "films", "séries", "mpv", "cli", "terminal", "rare", "vostfr", "sous-titres"]
 dependencies = [
     # Core HTTP / parsing
     "requests>=2.28.0",

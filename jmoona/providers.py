@@ -2,9 +2,11 @@ import os
 import json
 from .config import CONFIG_DIR
 
-# Ordered by reliability. Cloudnestra (vidsrc.to) is handled separately in extractor.py.
+# Ordered by reliability.
+# Format: (name, movie_url_template, tv_url_template)
+# Placeholders: {id}=TMDB ID, {s}=season, {e}=episode, {imdb}=IMDB ID
 DEFAULT_PROVIDERS = [
-    # --- Top tier: direct TMDB ID support, very reliable ---
+    # ── Tier 1: direct TMDB ID, très fiables ────────────────────────────────
     ("vidsrc.cc",
      "https://vidsrc.cc/v2/embed/movie/{id}",
      "https://vidsrc.cc/v2/embed/tv/{id}/{s}/{e}"),
@@ -17,7 +19,13 @@ DEFAULT_PROVIDERS = [
     ("vidlink.pro",
      "https://vidlink.pro/movie/{id}",
      "https://vidlink.pro/tv/{id}/{s}/{e}"),
-    # --- Mid tier ---
+    ("superembed",
+     "https://superembed.stream/embed?tmdb_id={id}&type=movie",
+     "https://superembed.stream/embed?tmdb_id={id}&type=tv&season={s}&episode={e}"),
+    ("videasy",
+     "https://player.videasy.net/movie/{id}",
+     "https://player.videasy.net/tv/{id}/{s}/{e}"),
+    # ── Tier 2: fiables mais parfois lents ──────────────────────────────────
     ("vidsrc.to",
      "https://vidsrc.to/embed/movie/{id}",
      "https://vidsrc.to/embed/tv/{id}/{s}/{e}"),
@@ -30,6 +38,9 @@ DEFAULT_PROVIDERS = [
     ("2embed",
      "https://www.2embed.cc/embed/{id}",
      "https://www.2embed.cc/embedtv/{id}&s={s}&e={e}"),
+    ("2embed.skin",
+     "https://www.2embed.skin/embed/{id}",
+     "https://www.2embed.skin/embedtv/{id}&s={s}&e={e}"),
     ("moviesapi",
      "https://moviesapi.club/movie/{id}",
      "https://moviesapi.club/tv/{id}-{s}-{e}"),
@@ -39,9 +50,32 @@ DEFAULT_PROVIDERS = [
     ("smashystream",
      "https://player.smashy.stream/movie/{id}",
      "https://player.smashy.stream/tv/{id}?s={s}&e={e}"),
+    # ── Tier 3: spéciaux / sources rares ────────────────────────────────────
     ("frembed",
      "https://frembed.pro/api/film.php?id={id}",
      "https://frembed.pro/api/serie.php?id={id}&sa={s}&epi={e}"),
+    ("frembed.lol",
+     "https://frembed.lol/api/film.php?id={id}",
+     "https://frembed.lol/api/serie.php?id={id}&sa={s}&epi={e}"),
+    ("embedc.in",
+     "https://embedc.in/embed/movie/{id}?autostart=0",
+     "https://embedc.in/embed/tv/{id}/{s}/{e}?autostart=0"),
+    ("watcha.pro",
+     "https://watcha.pro/en/movie/{id}",
+     "https://watcha.pro/en/tv/{id}"),
+]
+
+# Providers that accept IMDB ID instead of TMDB ID (used as fallback for rare content)
+IMDB_PROVIDERS = [
+    ("vidsrc.me-imdb",
+     "https://vidsrc.me/embed/movie?imdb={imdb}",
+     "https://vidsrc.me/embed/tv?imdb={imdb}&season={s}&episode={e}"),
+    ("2embed-imdb",
+     "https://www.2embed.cc/embed/{imdb}",
+     "https://www.2embed.cc/embedtv/{imdb}&s={s}&e={e}"),
+    ("vidsrc.to-imdb",
+     "https://vidsrc.to/embed/movie/{imdb}",
+     "https://vidsrc.to/embed/tv/{imdb}/{s}/{e}"),
 ]
 
 

@@ -1,3 +1,12 @@
+"""
+app.py — Main application logic for jmoona-cli v1.0.4
+New features:
+  • Episode browser showing total episodes per season
+  • Auto-next episode mode (if config auto_next=True)
+  • Retry menu when extraction fails
+  • Discover by genre and by original language
+  • Richer details panel (genres, runtime, country)
+"""
 import sys
 import os
 from . import __version__
@@ -11,31 +20,63 @@ from .downloader import download
 from .art import get_random_art
 from .subtitles import fetch_subtitle
 
+
 def format_item(item):
-    title = item.get("title") or item.get("name") or "Inconnu"
-    date = (item.get("release_date") or item.get("first_air_date") or "")[:4]
+    title   = item.get("title") or item.get("name") or "Inconnu"
+    date    = (item.get("release_date") or item.get("first_air_date") or "")[:4]
     date_str = f"({date})" if date else ""
     vt = item.get("vote_count", 0)
-    if vt > 1000: vt_str = f"{vt/1000:.1f}k"
-    else: vt_str = str(vt)
+    vt_str = f"{vt/1000:.1f}k" if vt > 1000 else str(vt)
     icon = "🎬" if item.get("media_type", "movie") == "movie" else "📺"
-    return f"{icon} {C.BOLD}{title}{C.RESET}  {C.DIM}{date_str}{C.RESET}  {C.YELLOW}★{item.get('vote_average', 0):.1f}{C.RESET}  {C.DIM}{vt_str} votes{C.RESET}"
+    orig_lang = item.get("original_language", "")
+    lang_flag = f"  {C.GRAY}[{orig_lang.upper()}]{C.RESET}" if orig_lang and orig_lang != "fr" else ""
+    return (f"{icon} {C.BOLD}{title}{C.RESET}  {C.DIM}{date_str}{C.RESET}"
+            f"  {C.YELLOW}★{item.get('vote_average', 0):.1f}{C.RESET}"
+            f"  {C.DIM}{vt_str} votes{C.RESET}{lang_flag}")
+
 
 def print_details(item):
-    title = item.get("title") or item.get("name") or "Inconnu"
-    date = (item.get("release_date") or item.get("first_air_date") or "")[:4]
-    mtype = "🎬 Film" if item.get("media_type", "movie") == "movie" else "📺 Série"
+    title    = item.get("title") or item.get("name") or "Inconnu"
+    date     = (item.get("release_date") or item.get("first_air_date") or "")[:4]
+    mtype    = "🎬 Film" if item.get("media_type", "movie") == "movie" else "📺 Série"
     overview = item.get("overview", "Aucune description.")
-    if len(overview) > 150:
-        overview = overview[:147] + "..."
-    
+    if len(overview) > 180:
+        overview = overview[:177] + "..."
+
+    # Genres
+    genres = item.get("genres", [])
+    if not genres:
+        # Try from list format (search results have genre_ids not genres)
+        genre_ids = item.get("genre_ids", [])
+        if genre_ids:
+            genres = [{"name": str(g)} for g in genre_ids[:3]]
+    genre_str = " · ".join(g["name"] for g in genres[:4]) if genres else ""
+
+    # Runtime / episodes
+    runtime = item.get("runtime") or item.get("episode_run_time", [None])[0] if isinstance(item.get("episode_run_time"), list) else item.get("runtime")
+    runtime_str = f"  |  {runtime} min" if runtime else ""
+
+    # Country
+    countries = item.get("production_countries", []) or item.get("origin_country", [])
+    if isinstance(countries, list) and countries:
+        if isinstance(countries[0], dict):
+            country_str = f"  |  {countries[0].get('iso_3166_1', '')}"
+        else:
+            country_str = f"  |  {countries[0]}"
+    else:
+        country_str = ""
+
     print(f"\n{C.CYAN}════════════════════════════════════════════════════════════{C.RESET}")
-    print(f"  {C.BOLD}{title}{C.RESET}  ({date})  {mtype}")
-    print(f"  {C.YELLOW}★{item.get('vote_average', 0):.1f}/10{C.RESET}  |  {item.get('vote_count', 0)} votes")
+    print(f"  {C.BOLD}{title}{C.RESET}  ({date})  {mtype}{runtime_str}{country_str}")
+    print(f"  {C.YELLOW}★{item.get('vote_average', 0):.1f}/10{C.RESET}  |  {item.get('vote_count', 0)} votes", end="")
     if "original_language" in item:
-        print(f"  Langue originale: {get_lang_label(item['original_language'])}")
+        print(f"  |  Langue originale: {get_lang_label(item['original_language'])}", end="")
+    print()
+    if genre_str:
+        print(f"  {C.DIM}{genre_str}{C.RESET}")
     print(f"\n  {C.DIM}{overview}{C.RESET}")
     print(f"{C.CYAN}════════════════════════════════════════════════════════════{C.RESET}")
+
 
 def select_media(results, config, prompt="Résultats"):
     if not results:
@@ -43,57 +84,62 @@ def select_media(results, config, prompt="Résultats"):
         return None
     return fzf_or_numbered(results, prompt, format_item, use_fzf=config.get("use_fzf", True))
 
+
 def main_flow(query=None, args=None):
     config = load_config()
     if args and getattr(args, 'no_fzf', False):
         config["use_fzf"] = False
-    
+
     if query:
         spinner(f"Recherche de '{query}'...", art=get_random_art())
         results = tmdb_client.search(query, media_type=getattr(args, 'type', 'multi') or 'multi')
         clear_line()
         item = select_media(results, config, "Choisir un titre")
-        if item: handle_item(item, args, config)
+        if item:
+            handle_item(item, args, config)
         return
 
     menu = [
-        ("🎬  Chercher un film", lambda: handle_search("movie", args, config)),
-        ("📺  Chercher une série", lambda: handle_search("tv", args, config)),
-        ("🔥  Tendances", lambda: handle_list(tmdb_client.trending(), "Tendances", args, config)),
-        ("⭐  Films populaires", lambda: handle_list(tmdb_client.popular("movie"), "Films Populaires", args, config)),
-        ("📡  Séries populaires", lambda: handle_list(tmdb_client.popular("tv"), "Séries Populaires", args, config)),
-        ("🏆  Mieux notés", lambda: handle_list(tmdb_client.top_rated("movie"), "Mieux Notés", args, config)),
-        ("🕒  Historique", lambda: handle_history(args, config)),
-        ("🔖  Favoris", lambda: handle_bookmarks(args, config)),
-        ("👋  Quitter", lambda: sys.exit(0))
+        ("🎬  Chercher un film",    lambda: handle_search("movie", args, config)),
+        ("📺  Chercher une série",  lambda: handle_search("tv",    args, config)),
+        ("🔥  Tendances",           lambda: handle_list(tmdb_client.trending(), "Tendances", args, config)),
+        ("⭐  Films populaires",    lambda: handle_list(tmdb_client.popular("movie"), "Films Populaires", args, config)),
+        ("📡  Séries populaires",   lambda: handle_list(tmdb_client.popular("tv"), "Séries Populaires", args, config)),
+        ("🏆  Mieux notés",         lambda: handle_list(tmdb_client.top_rated("movie"), "Mieux Notés", args, config)),
+        ("🎭  Par genre",           lambda: handle_by_genre(args, config)),
+        ("🌐  Par langue originale",lambda: handle_by_language(args, config)),
+        ("🕒  Historique",          lambda: handle_history(args, config)),
+        ("🔖  Favoris",             lambda: handle_bookmarks(args, config)),
+        ("👋  Quitter",             lambda: sys.exit(0)),
     ]
-    
+
     ASCII_LOGO = rf"""{C.MAGENTA}
       _                                        _ _ 
      (_)                                      | (_)
-      _ _ __ ___   ___   ___  _ __   __ _  ___| |_ 
+      _ _ __ ___   ___   ___  _ __   __ _  ___| | |
      | | '_ ` _ \ / _ \ / _ \| '_ \ / _` |/ __| | |
      | | | | | | | (_) | (_) | | | | (_| | (__| | |
      | |_| |_| |_|\___/ \___/|_| |_|\__,_|\___|_|_|
     _/ |                                           
-   |__/  {C.RESET}{C.DIM}v{__version__} — L'émulateur ultime de films et séries{C.RESET}
+   |__/  {C.RESET}{C.DIM}v{__version__} — Films & séries du monde{C.RESET}
     """
     if not query:
-        print("\033c", end="")  # Clear screen
+        print("\033c", end="")
         print(ASCII_LOGO)
-        print(f"  {C.BOLD}{C.CYAN}Bienvenue sur votre émulateur de films et séries by jmoona.{C.RESET}\n")
+        print(f"  {C.BOLD}{C.CYAN}Bienvenue sur jmoona — le meilleur streamer CLI.{C.RESET}\n")
         print(get_random_art())
         try:
             input(f"\n  {C.DIM}Appuyez sur Entrée pour continuer...{C.RESET}")
         except (KeyboardInterrupt, EOFError):
             sys.exit(0)
-        print("\033c", end="")  # Clear screen again before menu
+        print("\033c", end="")
         print(ASCII_LOGO)
         print(f"  {C.BOLD}{C.CYAN}Menu Principal{C.RESET}\n")
-    
+
     choice = fzf_or_numbered(menu, "Menu principal", lambda x: x[0], use_fzf=config.get("use_fzf", True))
     if choice:
         choice[1]()
+
 
 def handle_search(mtype, args, config):
     q = input(f"\nRecherche ({'Film' if mtype == 'movie' else 'Série'}) : ").strip()
@@ -106,6 +152,7 @@ def handle_search(mtype, args, config):
             item["media_type"] = mtype
             handle_item(item, args, config)
 
+
 def handle_list(items, title, args, config):
     item = select_media(items, config, title)
     if item:
@@ -113,13 +160,16 @@ def handle_list(items, title, args, config):
             item["media_type"] = "tv" if "first_air_date" in item else "movie"
         handle_item(item, args, config)
 
+
 def handle_history(args, config):
     history = get_history()
     if not history:
         warn("Historique vide.")
         return
     item = select_media(history, config, "Historique")
-    if item: handle_item(item, args, config)
+    if item:
+        handle_item(item, args, config)
+
 
 def handle_bookmarks(args, config):
     bookmarks = get_bookmarks()
@@ -127,100 +177,311 @@ def handle_bookmarks(args, config):
         warn("Favoris vides.")
         return
     item = select_media(bookmarks, config, "Favoris")
-    if item: handle_item(item, args, config)
+    if item:
+        handle_item(item, args, config)
+
+
+def handle_by_genre(args, config):
+    """Browse by genre → discover titles."""
+    mtype_choices = [("🎬 Films", "movie"), ("📺 Séries", "tv")]
+    mtype_choice  = fzf_or_numbered(mtype_choices, "Type", lambda x: x[0],
+                                    use_fzf=config.get("use_fzf", True))
+    if not mtype_choice:
+        return
+    mtype = mtype_choice[1]
+
+    spinner("Chargement des genres...", art=get_random_art())
+    genres = tmdb_client.genres(mtype)
+    clear_line()
+    if not genres:
+        warn("Impossible de charger les genres.")
+        return
+
+    genre = fzf_or_numbered(genres, "Genre", lambda g: g["name"],
+                            use_fzf=config.get("use_fzf", True))
+    if not genre:
+        return
+
+    spinner(f"Chargement des {mtype}s — {genre['name']}...", art=get_random_art())
+    results = tmdb_client.discover(mtype, genre=genre["id"])
+    for r in results:
+        r["media_type"] = mtype
+    clear_line()
+    handle_list(results, genre["name"], args, config)
+
+
+def handle_by_language(args, config):
+    """Browse by original language."""
+    LANGUAGES = [
+        ("🇫🇷 Français",   "fr"), ("🇬🇧 Anglais",  "en"), ("🇯🇵 Japonais", "ja"),
+        ("🇰🇷 Coréen",     "ko"), ("🇪🇸 Espagnol", "es"), ("🇩🇪 Allemand", "de"),
+        ("🇮🇹 Italien",    "it"), ("🇵🇹 Portugais","pt"), ("🇷🇺 Russe",    "ru"),
+        ("🇨🇳 Chinois",    "zh"), ("🇮🇳 Hindi",    "hi"), ("🇸🇦 Arabe",    "ar"),
+        ("🇹🇷 Turc",       "tr"), ("🇳🇱 Néerlandais","nl"),("🇵🇱 Polonais","pl"),
+        ("🇸🇪 Suédois",    "sv"), ("🇩🇰 Danois",   "da"), ("🇫🇮 Finnois",  "fi"),
+        ("🇬🇷 Grec",       "el"), ("🇮🇱 Hébreu",   "he"), ("🇹🇭 Thaï",    "th"),
+    ]
+    lang = fzf_or_numbered(LANGUAGES, "Langue originale", lambda x: x[0],
+                           use_fzf=config.get("use_fzf", True))
+    if not lang:
+        return
+
+    mtype_choices = [("🎬 Films", "movie"), ("📺 Séries", "tv")]
+    mtype_choice  = fzf_or_numbered(mtype_choices, "Type", lambda x: x[0],
+                                    use_fzf=config.get("use_fzf", True))
+    if not mtype_choice:
+        return
+    mtype = mtype_choice[1]
+
+    spinner(f"Chargement {lang[0]}...", art=get_random_art())
+    results = tmdb_client.discover(mtype, lang=lang[1])
+    for r in results:
+        r["media_type"] = mtype
+    clear_line()
+    handle_list(results, f"{lang[0]}", args, config)
+
+
+def _pick_episode(item, args, config):
+    """Pick season + episode with info on total counts."""
+    tmdb_id = item["id"]
+
+    # Get season list
+    spinner("Chargement des saisons...", art=get_random_art())
+    tv_detail = tmdb_client.tv(tmdb_id)
+    clear_line()
+
+    seasons_raw = tv_detail.get("seasons", [])
+    # Filter real seasons (not specials if season 0)
+    seasons = [s for s in seasons_raw if s.get("season_number", 0) > 0]
+    if not seasons:
+        seasons = [{"season_number": 1, "episode_count": 1}]
+
+    season_labels = [
+        f"Saison {s['season_number']}  ({s.get('episode_count', '?')} épisodes)"
+        for s in seasons
+    ]
+    season_items = list(zip(season_labels, seasons))
+    season_choice = fzf_or_numbered(
+        season_items, "Saison", lambda x: x[0],
+        use_fzf=config.get("use_fzf", True)
+    )
+    if not season_choice:
+        return None, None
+    chosen_season = season_choice[1]
+    season_num = chosen_season["season_number"]
+    ep_count   = chosen_season.get("episode_count", 1)
+
+    # Episode picker with numbers
+    ep_items   = [f"Épisode {e}" for e in range(1, ep_count + 1)]
+    ep_choice  = fzf_or_numbered(
+        list(enumerate(ep_items, 1)), "Épisode", lambda x: x[1],
+        use_fzf=config.get("use_fzf", True)
+    )
+    if not ep_choice:
+        return season_num, 1
+    return season_num, ep_choice[0]
+
 
 def handle_item(item, args, config):
     if "media_type" not in item:
         item["media_type"] = "tv" if "first_air_date" in item else "movie"
-        
+
+    # Enrich with extra details from TMDB if needed
+    if "genres" not in item and item.get("id"):
+        try:
+            if item["media_type"] == "movie":
+                detail = tmdb_client.movie(item["id"])
+            else:
+                detail = tmdb_client.tv(item["id"])
+            item.update({k: v for k, v in detail.items() if k not in item})
+        except Exception:
+            pass
+
     print_details(item)
+
     opts = ["▶ Regarder", "⬇ Télécharger", "🔖 Ajouter aux favoris", "🔙 Retour"]
-    choice = fzf_or_numbered(opts, "Action", lambda x: x, use_fzf=config.get("use_fzf", True))
-    
+    choice = fzf_or_numbered(opts, "Action", lambda x: x,
+                             use_fzf=config.get("use_fzf", True))
+
     if not choice or "Retour" in choice:
         return
-        
+
     if "Favoris" in choice:
         add_bookmark(item)
         success("Ajouté aux favoris.")
         return
 
+    # Season / episode selection
     season, episode = 1, 1
     if item["media_type"] == "tv":
         if args and getattr(args, 'season', None) and getattr(args, 'episode', None):
             season, episode = args.season, args.episode
         else:
-            try:
-                s_str = input("Saison (défaut=1) : ").strip()
-                if s_str: season = int(s_str)
-                e_str = input("Épisode (défaut=1) : ").strip()
-                if e_str: episode = int(e_str)
-            except ValueError:
-                pass
-                
-    provider = args.provider if args and getattr(args, 'provider', None) else config.get("provider", "auto")
-    quality = args.quality if args and getattr(args, 'quality', None) else config.get("quality", "best")
-    
-    # Mode de lecture (simple)
+            s, e = _pick_episode(item, args, config)
+            if s is None:
+                return
+            season, episode = s, e
+
+    provider = (args.provider if args and getattr(args, 'provider', None)
+                else config.get("provider", "auto"))
+    quality  = (args.quality if args and getattr(args, 'quality', None)
+                else config.get("quality", "best"))
+
+    # Language mode
     is_anime = item.get("original_language") in ("ja", "ko", "zh")
     lang_menu = [
         ("🎵  Auto  — FR si disponible, sinon VO (recommandé)", "auto"),
-        ("🔤  VOSTFR  — VO + sous-titres français", "vostfr"),
-        ("🇬🇧  VA  — Version originale uniquement", "va"),
+        ("🔤  VOSTFR  — VO + sous-titres français",             "vostfr"),
+        ("🇬🇧  VA  — Version originale uniquement",              "va"),
     ]
-    lang_choice = fzf_or_numbered(lang_menu, "Mode de lecture", lambda x: x[0], use_fzf=config.get("use_fzf", True))
+    lang_choice = fzf_or_numbered(lang_menu, "Mode de lecture", lambda x: x[0],
+                                  use_fzf=config.get("use_fzf", True))
     lang_mode = lang_choice[1] if lang_choice else ("vostfr" if is_anime else "auto")
 
-    stream_url, _ = extract(item["id"], item["media_type"], season, episode, quality=quality, lang="en", provider=provider)
+    # --- Extraction loop with retry ---
+    stream_url = None
+    vtt_url    = None
+    while stream_url is None:
+        stream_url, vtt_url = extract(
+            item["id"], item["media_type"], season, episode,
+            quality=quality, lang="en", provider=provider
+        )
 
-    if not stream_url:
-        error("Impossible de trouver un flux vidéo.")
-        return
+        if not stream_url:
+            error("Impossible de trouver un flux vidéo.")
+            retry_opts = [
+                ("🔄 Réessayer avec tous les providers", "retry_all"),
+                ("🔌 Changer de provider",               "change_provider"),
+                ("🔙 Retour au menu",                    "back"),
+            ]
+            retry = fzf_or_numbered(retry_opts, "Que faire ?", lambda x: x[0],
+                                    use_fzf=config.get("use_fzf", True))
+            if not retry or retry[1] == "back":
+                return
+            elif retry[1] == "change_provider":
+                from .providers import PROVIDERS
+                prov_names = [p[0] for p in PROVIDERS] + ["auto"]
+                prov_choice = fzf_or_numbered(prov_names, "Choisir un provider",
+                                              lambda x: x,
+                                              use_fzf=config.get("use_fzf", True))
+                if prov_choice:
+                    provider = prov_choice
+            # else retry_all: just loop again
 
-    # Audio language preference for mpv (no slow track scan needed)
+    # Audio language preference for mpv
     audio_lang_mpv = {
-        "auto":   "fr,en",   # mpv picks FR if available, falls back to EN
+        "auto":   "fr,en",
         "va":     "en",
-        "vostfr": "en",      # keep original audio, subs handle French
+        "vostfr": "en",
     }.get(lang_mode, "en")
 
-    # Subtitles — VOSTFR only
+    # Subtitles (VOSTFR only)
     sub_file = None
     if lang_mode == "vostfr":
         spinner("Recherche de sous-titres français ...", art=get_random_art())
-        sub_file = fetch_subtitle(item["id"], item["media_type"], lang="fr", season=season, episode=episode)
+        sub_file = fetch_subtitle(item["id"], item["media_type"],
+                                  lang="fr", season=season, episode=episode)
         clear_line()
         if sub_file:
             success(f"✓ VOSTFR — {os.path.basename(sub_file)}")
         else:
-            warn("Aucun sous-titre FR disponible sur OpenSubtitles — lecture en VO.")
-
+            warn("Aucun sous-titre FR trouvé — lecture en VO.")
 
     item["episode"] = episode
     add_history(item)
 
     if "Télécharger" in choice:
         out_dir = os.path.expanduser(config.get("download_dir", "~/Downloads/jmoona"))
-        title = item.get("title") or item.get("name")
+        title_str = item.get("title") or item.get("name")
         if item["media_type"] == "tv":
-            title += f" S{season:02d}E{episode:02d}"
-        
-        download(stream_url, title, out_dir, quality=quality,
+            title_str += f" S{season:02d}E{episode:02d}"
+        download(stream_url, title_str, out_dir, quality=quality,
                  audio_lang=audio_lang_mpv or "en",
                  sub_path=sub_file)
-    else:
-        rkey = f"{item['media_type']}_{item['id']}"
-        if item["media_type"] == "tv":
-            rkey += f"_s{season}e{episode}"
-            
-        resume_pos = get_resume(rkey)
-        
-        play(
-            stream_url,
-            title=(item.get("title") or item.get("name")),
-            player=config.get("player", "mpv"),
-            player_args=config.get("player_args", "--fs"),
-            audio_lang=audio_lang_mpv,
-            sub_path=sub_file,
-            resume_pos=resume_pos
-        )
+        return
+
+    # Play
+    rkey = f"{item['media_type']}_{item['id']}"
+    if item["media_type"] == "tv":
+        rkey += f"_s{season}e{episode}"
+    resume_pos = get_resume(rkey)
+
+    play(
+        stream_url,
+        title=(item.get("title") or item.get("name")),
+        player=config.get("player", "mpv"),
+        player_args=config.get("player_args", "--fs"),
+        audio_lang=audio_lang_mpv,
+        sub_path=sub_file,
+        resume_pos=resume_pos,
+    )
+
+    # Auto-next episode
+    if (config.get("auto_next", False) and item["media_type"] == "tv"):
+        _attempt_next_episode(item, season, episode, args, config,
+                              lang_mode, provider, quality)
+
+
+def _attempt_next_episode(item, season, episode, args, config,
+                           lang_mode, provider, quality):
+    """Auto-play the next episode if available."""
+    try:
+        season_info = tmdb_client.season(item["id"], season)
+        ep_count    = len(season_info.get("episodes", []))
+    except Exception:
+        return
+
+    next_ep  = episode + 1
+    next_s   = season
+    if next_ep > ep_count:
+        # Try next season
+        next_ep = 1
+        next_s  = season + 1
+
+    print(f"\n  {C.DIM}Épisode suivant : S{next_s:02d}E{next_ep:02d}{C.RESET}")
+    try:
+        ans = input(f"  {C.BOLD}▶ Lancer S{next_s:02d}E{next_ep:02d} ? [O/n]{C.RESET} ").strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        return
+    if ans in ("", "o", "y", "oui", "yes"):
+        item_next = dict(item)
+        handle_item_direct(item_next, next_s, next_ep, args, config,
+                           lang_mode, provider, quality)
+
+
+def handle_item_direct(item, season, episode, args, config,
+                        lang_mode, provider, quality):
+    """Play a specific season/episode directly (used by auto-next)."""
+    stream_url, _ = extract(
+        item["id"], item["media_type"], season, episode,
+        quality=quality, lang="en", provider=provider
+    )
+    if not stream_url:
+        error(f"Flux introuvable pour S{season:02d}E{episode:02d}.")
+        return
+
+    audio_lang_mpv = {"auto": "fr,en", "va": "en", "vostfr": "en"}.get(lang_mode, "en")
+
+    sub_file = None
+    if lang_mode == "vostfr":
+        spinner("Sous-titres...", art=get_random_art())
+        sub_file = fetch_subtitle(item["id"], item["media_type"],
+                                  lang="fr", season=season, episode=episode)
+        clear_line()
+
+    rkey = f"{item['media_type']}_{item['id']}_s{season}e{episode}"
+    resume_pos = get_resume(rkey)
+
+    play(
+        stream_url,
+        title=f"{item.get('title') or item.get('name')} S{season:02d}E{episode:02d}",
+        player=config.get("player", "mpv"),
+        player_args=config.get("player_args", "--fs"),
+        audio_lang=audio_lang_mpv,
+        sub_path=sub_file,
+        resume_pos=resume_pos,
+    )
+
+    if config.get("auto_next", False):
+        _attempt_next_episode(item, season, episode, args, config,
+                              lang_mode, provider, quality)
