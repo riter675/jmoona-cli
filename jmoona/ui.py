@@ -51,15 +51,17 @@ def fzf_select(items, prompt="Choisir"):
             ["fzf", "--prompt", f"{prompt} > ", "--ansi"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
             text=True
         )
         stdout, _ = proc.communicate(input=input_str)
         if proc.returncode == 0 and stdout:
             return stdout.strip().split("\n")
+        elif proc.returncode in (1, 130): # user cancelled
+            return None
     except Exception:
         pass
-    return None
+    # fzf failed (e.g. exit 2) or threw an exception -> fallback to numbered
+    return False
 
 def fzf_or_numbered(items, prompt="Choisir", key_fn=None, use_fzf=True):
     labels = [key_fn(i) if key_fn else str(i) for i in items]
@@ -67,13 +69,16 @@ def fzf_or_numbered(items, prompt="Choisir", key_fn=None, use_fzf=True):
 
     if use_fzf and fzf_available():
         chosen = fzf_select(labels, prompt=prompt)
-        if chosen:
+        if chosen is None:
+            return None # user cancelled
+        if chosen is not False:
             chosen_plain = _strip_ansi(chosen[0])
             for item, lp in zip(items, labels_plain):
                 if lp == chosen_plain: return item
             for item, lp in zip(items, labels_plain):
                 if chosen_plain in lp or lp in chosen_plain: return item
-        return None
+            return None
+        # If chosen is False, fzf errored out. Fall through to numbered menu.
 
     print(f"\n{'─'*60}")
     for n, label in enumerate(labels, 1):
