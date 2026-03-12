@@ -2,11 +2,27 @@ import os
 import json
 from .config import CONFIG_DIR
 
+# Multilingual providers known to often carry French audio tracks (VF)
+VF_PROVIDERS = [
+    ("autoembed",
+     "https://autoembed.co/movie/tmdb/{id}",
+     "https://autoembed.co/tv/tmdb/{id}-{s}-{e}"),
+    ("multiembed",
+     "https://multiembed.mov/?video_id={id}&tmdb=1",
+     "https://multiembed.mov/?video_id={id}&tmdb=1&s={s}&e={e}"),
+    ("2embed",
+     "https://www.2embed.cc/embed/{id}",
+     "https://www.2embed.cc/embedtv/{id}&s={s}&e={e}"),
+    ("vidlink.pro",
+     "https://vidlink.pro/movie/{id}",
+     "https://vidlink.pro/tv/{id}/{s}/{e}")
+]
+
 # Ordered by reliability.
 # Format: (name, movie_url_template, tv_url_template)
 # Placeholders: {id}=TMDB ID, {s}=season, {e}=episode, {imdb}=IMDB ID
 DEFAULT_PROVIDERS = [
-    # ── Tier 1: direct TMDB ID, très fiables ────────────────────────────────
+    # ── Tier 1: direct TMDB ID, très fiables, souvent VO ──────────────────
     ("vidsrc.cc",
      "https://vidsrc.cc/v2/embed/movie/{id}",
      "https://vidsrc.cc/v2/embed/tv/{id}/{s}/{e}"),
@@ -16,9 +32,6 @@ DEFAULT_PROVIDERS = [
     ("embed.su",
      "https://embed.su/embed/movie/{id}",
      "https://embed.su/embed/tv/{id}/{s}/{e}"),
-    ("vidlink.pro",
-     "https://vidlink.pro/movie/{id}",
-     "https://vidlink.pro/tv/{id}/{s}/{e}"),
     ("superembed",
      "https://superembed.stream/embed?tmdb_id={id}&type=movie",
      "https://superembed.stream/embed?tmdb_id={id}&type=tv&season={s}&episode={e}"),
@@ -50,21 +63,9 @@ DEFAULT_PROVIDERS = [
     ("vidsrc.me",
      "https://vidsrc.me/embed/movie?tmdb={id}",
      "https://vidsrc.me/embed/tv?tmdb={id}&season={s}&episode={e}"),
-    ("autoembed",
-     "https://autoembed.co/movie/tmdb/{id}",
-     "https://autoembed.co/tv/tmdb/{id}-{s}-{e}"),
-    ("2embed",
-     "https://www.2embed.cc/embed/{id}",
-     "https://www.2embed.cc/embedtv/{id}&s={s}&e={e}"),
-    ("2embed.skin",
-     "https://www.2embed.skin/embed/{id}",
-     "https://www.2embed.skin/embedtv/{id}&s={s}&e={e}"),
     ("moviesapi",
      "https://moviesapi.club/movie/{id}",
      "https://moviesapi.club/tv/{id}-{s}-{e}"),
-    ("multiembed",
-     "https://multiembed.mov/?video_id={id}&tmdb=1",
-     "https://multiembed.mov/?video_id={id}&tmdb=1&s={s}&e={e}"),
     ("smashystream",
      "https://player.smashy.stream/movie/{id}",
      "https://player.smashy.stream/tv/{id}?s={s}&e={e}"),

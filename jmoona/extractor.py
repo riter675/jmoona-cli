@@ -544,6 +544,14 @@ def extract(tmdb_id, media_type, season=1, episode=1,
         clear_line(); success("Stream trouvé via Cloudnestra"); return url, vtt
     clear_line()
 
+    # Phase 0.5: Priorité absolue aux flux Multi-audio (pour forcer la VF)
+    spinner("🔍 Recherche de flux Multi-audio (VF prioritaire)...", art=get_random_art())
+    from .providers import VF_PROVIDERS
+    url, vtt = _scrape_concurrent(VF_PROVIDERS, max_workers=4)
+    if url:
+        clear_line(); success("Stream Multi/VF trouvé"); return url, vtt
+    clear_line()
+
     # Phase 1 (concurrent, max 10 at a time)
     spinner(f"🔍 Scrapers HTTP ({len(providers)} providers) ...", art=get_random_art())
     url, vtt = _scrape_concurrent(providers, max_workers=10)
