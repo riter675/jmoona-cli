@@ -8,7 +8,9 @@ import tempfile
 import xmlrpc.client
 import urllib.request
 
-OPENSUBTITLES_UA = "jmoona-cli v1.0.0"
+from . import __version__
+
+OPENSUBTITLES_UA = f"jmoona-cli v{__version__}"
 OPENSUBTITLES_API = "https://api.opensubtitles.org/xml-rpc"
 
 LANG_MAP = {

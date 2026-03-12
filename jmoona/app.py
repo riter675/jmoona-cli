@@ -1,5 +1,6 @@
 import sys
 import os
+from . import __version__
 from .ui import C, fzf_or_numbered, _strip_ansi, success, warn, error, clear_line, spinner
 from .tmdb import tmdb_client
 from .storage import load_config, add_history, get_history, get_bookmarks, add_bookmark, get_resume
@@ -75,7 +76,7 @@ def main_flow(query=None, args=None):
      | | | | | | | (_) | (_) | | | | (_| | (__| | |
      | |_| |_| |_|\___/ \___/|_| |_|\__,_|\___|_|_|
     _/ |                                           
-   |__/  {C.RESET}{C.DIM}v1.0.0 - L'émulateur ultime de films et séries{C.RESET}
+   |__/  {C.RESET}{C.DIM}v{__version__} — L'émulateur ultime de films et séries{C.RESET}
     """
     if not query:
         print("\033c", end="")  # Clear screen

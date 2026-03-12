@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jmoona-cli"
-version = "1.0.1"
+version = "1.0.2"
 description = "Films & séries du monde en streaming depuis le terminal"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -31,7 +31,9 @@ dev = ["pytest", "black", "ruff"]
 jmoona = "jmoona.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/jmoona-cli"
+Homepage = "https://github.com/riter675/jmoona-cli"
+Repository = "https://github.com/riter675/jmoona-cli.git"
+"Bug Tracker" = "https://github.com/riter675/jmoona-cli/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

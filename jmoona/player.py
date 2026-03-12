@@ -45,12 +45,12 @@ def play(stream_url, title="", sub_path=None, player="mpv",
             cmd += ["--referrer=https://cloudnestra.com/"]
             cmd += ["--http-header-fields=Origin: https://cloudnestra.com"]
 
-        # Limit cache size and use aggressive reconnect logic to survive HLS 429 Too Many Requests
+        # HLS reliability: cache + aggressive reconnect (survives 429 / segment errors)
         cmd += [
             "--cache=yes",
             "--demuxer-max-bytes=32M",
             "--demuxer-max-back-bytes=10M",
-            "--stream-lavf-o=reconnect_on_http_error=4xx,reconnect_delay_max=5",
+            "--stream-lavf-o=reconnect_on_http_error=4xx,5xx,reconnect_delay_max=5",
             "--demuxer-lavf-o=http_persistent=0"
         ]
 
